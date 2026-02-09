@@ -1,0 +1,76 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release-linux-amd64:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set version from tag
+        id: ver
+        run: |
+          TAG="${GITHUB_REF_NAME}"     # e.g. v0.1.0
+          VER="${TAG#v}"               # 0.1.0
+          echo "tag=$TAG" >> $GITHUB_OUTPUT
+          echo "ver=$VER" >> $GITHUB_OUTPUT
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build (linux amd64)
+        run: |
+          cargo build --release
+          mkdir -p dist
+          cp target/release/hello-brew dist/hello-brew
+          tar -czf dist/hello-brew_rs_linux_amd64.tar.gz -C dist hello-brew
+
+      - name: Compute sha256
+        id: sha
+        run: |
+          SHA=$(sha256sum dist/hello-brew_rs_linux_amd64.tar.gz | awk '{print $1}')
+          echo "sha=$SHA" >> $GITHUB_OUTPUT
+
+      - name: Create GitHub Release + upload asset
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.ver.outputs.tag }}
+          name: ${{ steps.ver.outputs.tag }}
+          files: |
+            dist/hello-brew_rs_linux_amd64.tar.gz
+
+      - name: Update Formula (url/sha/version)
+        run: |
+          VER="${{ steps.ver.outputs.ver }}"
+          TAG="${{ steps.ver.outputs.tag }}"
+          SHA="${{ steps.sha.outputs.sha }}"
+          FILE="Formula/hello-brew.rb"
+
+          # url 라인 교체
+          sed -i "s|url \".*\"|url \"https://github.com/${GITHUB_REPOSITORY}/releases/download/${TAG}/hello-brew_rs_linux_amd64.tar.gz\"|g" "$FILE"
+          # sha256 라인 교체
+          sed -i "s|sha256 \".*\"|sha256 \"${SHA}\"|g" "$FILE"
+          # version 라인 교체
+          sed -i "s|version \".*\"|version \"${VER}\"|g" "$FILE"
+
+          echo "---- updated formula ----"
+          cat "$FILE"
+
+      - name: Commit Formula update
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add Formula/hello-brew.rb
+          # 변경 없으면 커밋 스킵
+          git diff --cached --quiet && exit 0
+          git commit -m "chore: update formula for ${{ steps.ver.outputs.tag }} [skip ci]"
+          git push
+
