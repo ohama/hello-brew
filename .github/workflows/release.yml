@@ -72,5 +72,5 @@ jobs:
           # 변경 없으면 커밋 스킵
           git diff --cached --quiet && exit 0
           git commit -m "chore: update formula for ${{ steps.ver.outputs.tag }} [skip ci]"
-          git push
+          git push origin HEAD:master
 
